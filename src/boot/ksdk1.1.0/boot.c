@@ -256,8 +256,8 @@ static void						activateAllLowPowerSensorModes(bool verbose);
 static void						powerupAllSensors(void);
 static uint8_t						readHexByte(void);
 static int						read4digits(void);
-static void 					writeAllSensorsToFlash(int menuDelayBetweenEachRun, int loopForever);
-static void						printAllSensors(bool printHeadersAndCalibration, bool hexModeFlag, int menuDelayBetweenEachRun, bool loopForever);
+static void 					writeAllSensorsToFlash(bool sleepBetweenEachRun, int menuDelayBetweenEachRun, int loopForever);
+static void						printAllSensors(bool printHeadersAndCalibration, bool hexModeFlag,bool sleepBetweenEachRun, int menuDelayBetweenEachRun, bool loopForever);
 
 /*
  *	TODO: change the following to take byte arrays
@@ -1948,10 +1948,10 @@ main(void)
 
 #if (WARP_CSVSTREAM_TO_FLASH)
 		warpPrint("\r\n\tWriting directly to flash. Press 'q' to exit.\n");
-		writeAllSensorsToFlash(0, true);
+		writeAllSensorsToFlash(false, 0, true);
 
 #else
-		printAllSensors(true /* printHeadersAndCalibration */, true /* hexModeFlag */,
+		printAllSensors(true /* printHeadersAndCalibration */, true /* hexModeFlag */, false,
 						0 /* menuDelayBetweenEachRun */, true /* loopForever */);
 #endif
 
@@ -1991,7 +1991,7 @@ main(void)
 #if (WARP_CSVSTREAM_TO_FLASH)
 				writeAllSensorsToFlash(1, false);
 #else
-				printAllSensors(true /* printHeadersAndCalibration */, true /* hexModeFlag */, 0 /* menuDelayBetweenEachRun */, false /* loopForever */);
+				printAllSensors(true /* printHeadersAndCalibration */, true /* hexModeFlag */, false /* sleepBetweenEachRun */, 0 /* menuDelayBetweenEachRun */, false /* loopForever */);
 #endif
 			}
 
@@ -2705,10 +2705,29 @@ main(void)
 			 */
 			case 'z':
 			{
-				warpPrint("\r\n\tSet the time delay between each reading in milliseconds (e.g., '1234')> ");
-				uint16_t menuDelayBetweenEachRun = read4digits();
-				warpPrint("\r\n\tDelay between read batches set to %d milliseconds.",
-						  menuDelayBetweenEachRun);
+				bool sleepBetweenRun;
+				uint16_t menuDelayBetweenEachRun;
+
+				warpPrint("\r\n\tSleep during time delay between each reading (1 or 0)> ");
+				key = warpWaitKey();
+				sleepBetweenRun = (key == '1' ? true : false);
+				warpPrint("\r\n\tSleep during time delay set to %d", sleepBetweenRun);
+
+				if (sleepBetweenRun)
+				{
+					warpPrint("\r\n\tSet the time delay with sleep between each reading in seconds (e.g., '1234')> ");
+					menuDelayBetweenEachRun = read4digits();
+					warpPrint("\r\n\tDelay between read batches set to %d seconds.",
+							menuDelayBetweenEachRun);
+				}
+				else
+				{
+					warpPrint("\r\n\tSet the time delay without sleep between each reading in milliseconds (e.g., '1234')> ");
+					uint16_t menuDelayBetweenEachRun = read4digits();
+					warpPrint("\r\n\tDelay between read batches set to %d milliseconds.",
+							menuDelayBetweenEachRun);
+				}
+
 
 #if (WARP_BUILD_ENABLE_FLASH)
 				warpPrint("\r\n\tWrite sensor data to Flash? (1 or 0)>  ");
@@ -2719,7 +2738,7 @@ main(void)
 				if (gWarpWriteToFlash)
 				{
 					warpPrint("\r\n\tWriting to flash. Press 'q' to exit back to menu\n");
-					writeAllSensorsToFlash(menuDelayBetweenEachRun, true /* loopForever */);
+					writeAllSensorsToFlash(sleepBetweenRun, menuDelayBetweenEachRun, true /* loopForever */);
 				}
 				else
 #endif
@@ -2730,8 +2749,7 @@ main(void)
 					key = warpWaitKey();
 					hexModeFlag = (key == 'h' ? true : false);
 					warpPrint("\n");
-					printAllSensors(true /* printHeadersAndCalibration */, hexModeFlag,
-								menuDelayBetweenEachRun, true /* loopForever */);
+					printAllSensors(true, hexModeFlag, sleepBetweenRun, menuDelayBetweenEachRun, true);
 				}
 
 				warpDisableI2Cpins();
@@ -3155,7 +3173,7 @@ main(void)
 }
 
 void
-writeAllSensorsToFlash(int menuDelayBetweenEachRun, int loopForever)
+writeAllSensorsToFlash(bool sleepBetweenEachRun, int menuDelayBetweenEachRun, int loopForever)
 {
 #if (WARP_BUILD_ENABLE_FLASH)
 	uint32_t timeAtStart = OSA_TimeGetMsec();
@@ -3395,16 +3413,22 @@ writeAllSensorsToFlash(int menuDelayBetweenEachRun, int loopForever)
 
 		if (menuDelayBetweenEachRun > 0)
 		{
-			// while (OSA_TimeGetMsec() - timeAtStart < menuDelayBetweenEachRun)
-			// {
-			// }
 
-			// timeAtStart = OSA_TimeGetMsec();
-			status = warpSetLowPowerMode(kWarpPowerModeVLPS, menuDelayBetweenEachRun);
-			if (status != kWarpStatusOK)
+			if (sleepBetweenEachRun)
 			{
-				warpPrint("Failed to put into sleep: %d", status);
+				status = warpSetLowPowerMode(kWarpPowerModeVLPS, menuDelayBetweenEachRun);
+				if (status != kWarpStatusOK)
+				{
+					warpPrint("Failed to put into sleep: %d", status);
+				}
 			}
+			else
+			{
+				while (OSA_TimeGetMsec() - timeAtStart < menuDelayBetweenEachRun)
+				{
+				}
+			}
+
 		}
 
 		readingCount++;
@@ -3426,7 +3450,7 @@ writeAllSensorsToFlash(int menuDelayBetweenEachRun, int loopForever)
 }
 
 void
-printAllSensors(bool printHeadersAndCalibration, bool hexModeFlag,
+printAllSensors(bool printHeadersAndCalibration, bool hexModeFlag, bool sleepBetweenEachRun,
 				int menuDelayBetweenEachRun, bool loopForever)
 {
 	WarpStatus status;
@@ -3638,16 +3662,22 @@ printAllSensors(bool printHeadersAndCalibration, bool hexModeFlag,
 
 		if (menuDelayBetweenEachRun > 0)
 		{
-			// while (OSA_TimeGetMsec() - timeAtStart < menuDelayBetweenEachRun)
-			// {
-			// }
 
-			// timeAtStart = OSA_TimeGetMsec();
-			status = warpSetLowPowerMode(kWarpPowerModeVLPS, menuDelayBetweenEachRun);
-			if (status != kWarpStatusOK)
+			if (sleepBetweenEachRun)
 			{
-				warpPrint("Failed to put into sleep: %d", status);
+				status = warpSetLowPowerMode(kWarpPowerModeVLPS, menuDelayBetweenEachRun);
+				if (status != kWarpStatusOK)
+				{
+					warpPrint("Failed to put into sleep: %d", status);
+				}
 			}
+			else
+			{
+				while (OSA_TimeGetMsec() - timeAtStart < menuDelayBetweenEachRun)
+				{
+				}
+			}
+
 		}
 
 		readingCount++;
